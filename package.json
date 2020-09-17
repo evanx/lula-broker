@@ -1,0 +1,34 @@
+{
+  "name": "lula-broker",
+  "version": "0.0.1",
+  "description": "MQTT Broker using Aedes and Lula-auth",
+  "main": "lib/app.js",
+  "scripts": {
+    "start": "node lib/app.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evanx/lula-broker.git"
+  },
+  "keywords": [
+    "MQTT",
+    "Redis"
+  ],
+  "author": "https://github.com/evanx",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/evanx/lula-broker/issues"
+  },
+  "homepage": "https://github.com/evanx/lula-broker#readme",
+  "dependencies": {
+    "aedes": "^0.42.6",
+    "aedes-persistence-redis": "^7.0.0",
+    "bcrypt": "^5.0.0",
+    "config": "^3.3.1",
+    "ioredis": "^4.17.3",
+    "pino": "^6.6.1",
+    "pino-inspector": "^0.1.0",
+    "pino-pretty": "^4.2.1",
+    "websocket-stream": "^5.5.2"
+  }
+}
