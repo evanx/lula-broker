@@ -1,5 +1,7 @@
 module.exports = {
-  redis: {},
+  redis: {
+    keyPrefix: 'lula:',
+  },
   logger: {
     name: 'lula-broker',
     level: 'debug',
