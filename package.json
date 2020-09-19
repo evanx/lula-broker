@@ -1,10 +1,11 @@
 {
   "name": "lula-broker",
   "version": "0.0.1",
-  "description": "MQTT Broker using Aedes and Lula-auth",
-  "main": "lib/app.js",
+  "description": "MQTT Broker using Aedes",
+  "main": "lib/start.js",
   "scripts": {
-    "start": "node lib/app.js"
+    "start": "node examples/redis-bcrypt",
+    "inspect-brk:9229": "node --inspect-brk=9229 examples/redis-bcrypt"
   },
   "repository": {
     "type": "git",
@@ -24,11 +25,13 @@
     "aedes": "^0.42.6",
     "aedes-persistence-redis": "^7.0.0",
     "bcrypt": "^5.0.0",
-    "config": "^3.3.1",
     "ioredis": "^4.17.3",
+    "otplib": "^12.0.1",
     "pino": "^6.6.1",
-    "pino-inspector": "^0.1.0",
     "pino-pretty": "^4.2.1",
     "websocket-stream": "^5.5.2"
+  },
+  "devDependencies": {
+    "pino-inspector": "^0.1.0"
   }
 }
