@@ -1,6 +1,4 @@
-const assert = require('assert')
-
-assert.strictEqual(process.env.NODE_ENV, 'development')
+require('assert').strictEqual(process.env.NODE_ENV, 'development')
 
 require('../../lib/start')({
   config: require('./config'),

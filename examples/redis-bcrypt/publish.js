@@ -2,8 +2,8 @@ module.exports = ({ config, logger, redisClient }) => {
   const { keyPrefix } = config.redis
   return async (pub, client) => {
     if (client) {
-      const { topic } = pub
-      const payloadString = pub.payload.toString()
+      const { topic, payloadString, payloadObject } = pub
+      const type = payloadObject.type || 'none'
       const clientId = client.id
       logger.debug({ clientId, topic, payloadString }, 'publish')
       await redisClient
@@ -18,6 +18,24 @@ module.exports = ({ config, logger, redisClient }) => {
             'publish',
             `${keyPrefix}published:source:${clientId.replace(/:/g, '')}:p`,
             payloadString,
+          ],
+          ['zincrby', 'published:z', 1, [clientId, type].join(':')],
+          ['zincrby', 'published:type:z', 1, type],
+          ['zincrby', 'published:source:z', 1, clientId],
+          [
+            'xadd',
+            `published:x`,
+            'maxlen',
+            config.maxlen,
+            '*',
+            'source',
+            clientId,
+            'topic',
+            topic,
+            'payload',
+            payloadString,
+            'type',
+            type,
           ],
         ])
         .exec()

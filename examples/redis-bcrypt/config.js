@@ -1,4 +1,5 @@
 module.exports = {
+  maxlen: 1e6,
   redis: {
     keyPrefix: 'lula:',
   },

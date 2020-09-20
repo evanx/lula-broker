@@ -6,7 +6,7 @@ Lula-broker is an MQTT Broker implementation using:
 
 ## Redis Bcrypt example
 
-See example: https://github.com/evanx/lula-broker/blob/master/examples/redis-bcrypt/index.js
+See example: https://github.com/evanx/lula-broker/blob/master/examples/redis-bcrypt
 
 - client bcrypt and OTP credentials persisted in Redis
 - introspection of messages via Redis pubsub
