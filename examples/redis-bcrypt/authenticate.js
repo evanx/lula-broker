@@ -32,7 +32,7 @@ module.exports = ({ config, logger, redisClient, clock }) => {
         await redisClient
           .multi([
             ['hset', `client:${username}:h`, 'bcryptHash', passwordHash],
-            ['hdel', `client:${username}:h`, 'reg'],
+            ['hdel', `client:${username}:h`, 'regDeadline'],
           ])
           .exec()
         logger.info({ username }, 'Registered')
