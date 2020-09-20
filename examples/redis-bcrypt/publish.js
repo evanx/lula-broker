@@ -1,8 +1,11 @@
+const assert = require('assert')
+
 module.exports = ({ config, logger, redisClient }) => {
   const { keyPrefix } = config.redis
   return async (pub, client) => {
     if (client) {
       const { topic, payloadString, payloadObject } = pub
+      assert(payloadObject, 'payloadObject')
       const type = payloadObject.type || 'none'
       const clientId = client.id
       logger.debug({ clientId, topic, payloadString }, 'publish')
