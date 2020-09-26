@@ -1,29 +1,38 @@
 const bcrypt = require('bcrypt')
 const otplib = require('otplib')
+const { authenticateConcurrencyLimit } = require('./config')
 
-module.exports = ({ config, logger, redisClient, clock }) => {
+module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
   const authenticate = async (username, passwordString) => {
-    const [bcryptHash, otpSecret, regDeadline] = await redisClient.hmget(
-      `client:${username}:h`,
-      'bcryptHash',
-      'otpSecret',
-      'regDeadline',
-    )
+    const [
+      authenticateCount,
+      [bcryptHash, otpSecret, registrationDeadline],
+    ] = await multiAsync(redisClient, [
+      ['hincrby', 'meter:udc:h', 'authenticate', 1],
+      [
+        'hmget',
+        `client:${username}:h`,
+        'bcryptHash',
+        'otpSecret',
+        'registrationDeadline',
+      ],
+    ])
+    if (authenticateCount > config.authenticateConcurrencyLimit) {
+      return [false, 'concurrencyExceeded']
+    }
     if (otpSecret && /^\d{6}$/.test(passwordString)) {
       if (otplib.authenticator.check(passwordString, otpSecret)) {
-        logger.debug({ username }, 'Authenticated OTP')
-        return true
+        return [true, 'otpOk']
       }
     }
     if (bcryptHash) {
       if (await bcrypt.compare(passwordString, bcryptHash)) {
-        logger.debug({ username }, 'Authenticated')
-        return true
+        return [true, 'bcryptOk']
       }
     }
-    if (regDeadline) {
-      if (Number(regDeadline) < clock()) {
-        logger.warn({ username }, 'Registration expired')
+    if (registrationDeadline) {
+      if (Number(registrationDeadline) < clock()) {
+        return [false, 'registrationExpired']
       } else {
         const passwordHash = await bcrypt.hash(
           passwordString,
@@ -32,28 +41,48 @@ module.exports = ({ config, logger, redisClient, clock }) => {
         await redisClient
           .multi([
             ['hset', `client:${username}:h`, 'bcryptHash', passwordHash],
-            ['hdel', `client:${username}:h`, 'regDeadline'],
+            ['hdel', `client:${username}:h`, 'registrationDeadline'],
           ])
           .exec()
         logger.info({ username }, 'Registered')
+        return [true, 'registeredOk']
       }
     }
-    return false
+    return [false, 'invalidPassword']
   }
+
   return async (client, username, password, callback) => {
     const clientId = client.id
-    let authenticated = false
+    const result = {
+      authenticated: false,
+      reason: 'unknown',
+    }
     if (!username) {
-      logger.warn({ clientId }, 'Empty username')
+      result.reason = 'emptyUsername'
     } else if (!password) {
-      logger.warn({ username }, 'Empty password')
+      result.reason = 'emptyPassword'
     } else if (username !== clientId) {
-      logger.warn({ clientId, username }, 'Mismatched client/username')
+      result.reason = 'mismatchedClientUsername'
     } else {
       const clientKey = clientId.replace(/:/g, '')
-      authenticated = await authenticate(clientKey, password.toString())
-      logger.info({ clientKey, authenticated }, 'Authenticated')
+      try {
+        let [authenticatedRes, reasonRes] = await authenticate(
+          clientKey,
+          password.toString(),
+        )
+        if (authenticatedRes) {
+          result.authenticated = true
+        }
+        result.reason = reasonRes
+      } finally {
+        await multiAsync(redisClient, [
+          ['hincrby', 'meter:udc:h', 'authenticate', -1],
+          ['hincrby', 'meter:c:h', 'authenticate', 1],
+          ['hincrby', 'meter:authenticate:reason:h', result.reason, 1],
+        ])
+      }
     }
-    callback(null, authenticated)
+    logger.debug({ result }, 'authenticate')
+    callback(null, result.authenticated)
   }
 }

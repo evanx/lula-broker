@@ -9,6 +9,7 @@ module.exports = {
     prettyPrint: true,
     prettifierInspector: true,
   },
+  authenticateConcurrencyLimit: 1,
   bcrypt: {
     rounds: 12,
   },
