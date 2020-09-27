@@ -8,7 +8,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
       authenticateCount,
       [bcryptHash, otpSecret, registrationDeadline],
     ] = await multiAsync(redisClient, [
-      ['hincrby', 'meter:udc:h', 'authenticate', 1],
+      ['hincrby', 'meter:upDownCounter:h', 'authenticate', 1],
       [
         'hmget',
         `client:${username}:h`,
@@ -76,8 +76,8 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         result.reason = reasonRes
       } finally {
         await multiAsync(redisClient, [
-          ['hincrby', 'meter:udc:h', 'authenticate', -1],
-          ['hincrby', 'meter:c:h', 'authenticate', 1],
+          ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
+          ['hincrby', 'meter:counter:h', 'authenticate', 1],
           ['hincrby', 'meter:authenticate:reason:h', result.reason, 1],
         ])
       }
