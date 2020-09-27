@@ -7,11 +7,9 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
     logger.debug({ username }, 'authenticate')
     const [
       authenticateCount,
-      clientKeyExistsRes,
       [bcryptHash, otpSecret, registrationDeadline],
     ] = await multiAsync(redisClient, [
       ['hincrby', 'meter:upDownCounter:h', 'authenticate', 1],
-      ['exists', `client:${username}:h`],
       [
         'hmget',
         `client:${username}:h`,
@@ -20,9 +18,6 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         'registrationDeadline',
       ],
     ])
-    if (!clientKeyExistsRes) {
-      return [false, 'invalidClient']
-    }
     if (authenticateCount > config.authenticateConcurrencyLimit) {
       return [false, 'concurrencyExceeded']
     }
@@ -71,21 +66,32 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
       result.reason = 'mismatchedClientUsername'
     } else {
       const clientKey = clientId.replace(/:/g, '')
-      try {
-        let [authenticatedRes, reasonRes] = await authenticate(
-          clientKey,
-          password.toString(),
-        )
-        if (authenticatedRes) {
-          result.authenticated = true
-        }
-        result.reason = reasonRes
-      } finally {
+      const [clientKeyExistsRes] = await multiAsync(redisClient, [
+        ['exists', `client:${username}:h`],
+      ])
+      if (!clientKeyExistsRes) {
+        result.reason = 'invalidClient'
         await multiAsync(redisClient, [
-          ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
           ['hincrby', 'meter:counter:h', 'authenticate', 1],
           ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
         ])
+      } else {
+        try {
+          let [authenticatedRes, reasonRes] = await authenticate(
+            clientKey,
+            password.toString(),
+          )
+          if (authenticatedRes) {
+            result.authenticated = true
+          }
+          result.reason = reasonRes
+        } finally {
+          await multiAsync(redisClient, [
+            ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
+            ['hincrby', 'meter:counter:h', 'authenticate', 1],
+            ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
+          ])
+        }
       }
     }
     logger.debug({ result }, 'authenticate')
