@@ -4,11 +4,14 @@ const { authenticateConcurrencyLimit } = require('./config')
 
 module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
   const authenticate = async (username, passwordString) => {
+    logger.debug({ username }, 'authenticate')
     const [
       authenticateCount,
+      clientKeyExistsRes,
       [bcryptHash, otpSecret, registrationDeadline],
     ] = await multiAsync(redisClient, [
       ['hincrby', 'meter:upDownCounter:h', 'authenticate', 1],
+      ['exists', `client:${username}:h`],
       [
         'hmget',
         `client:${username}:h`,
@@ -17,6 +20,9 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         'registrationDeadline',
       ],
     ])
+    if (!clientKeyExistsRes) {
+      return [false, 'invalidClient']
+    }
     if (authenticateCount > config.authenticateConcurrencyLimit) {
       return [false, 'concurrencyExceeded']
     }
@@ -78,7 +84,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         await multiAsync(redisClient, [
           ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
           ['hincrby', 'meter:counter:h', 'authenticate', 1],
-          ['hincrby', 'meter:authenticate:reason:h', result.reason, 1],
+          ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
         ])
       }
     }
