@@ -26,6 +26,7 @@
     "aedes-persistence-redis": "^7.0.0",
     "bcrypt": "^5.0.0",
     "ioredis": "^4.17.3",
+    "mqemitter-redis": "^4.0.3",
     "otplib": "^12.0.1",
     "pino": "^6.6.1",
     "pino-pretty": "^4.2.1",

@@ -66,7 +66,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
     } else {
       const clientKey = clientId.replace(/:/g, '')
       const [clientKeyExistsRes] = await multiAsync(redisClient, [
-        ['exists', `client:${username}:h`],
+        ['exists', `client:${clientKey}:h`],
       ])
       if (!clientKeyExistsRes) {
         result.reason = 'invalidClient'
@@ -76,7 +76,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         ])
       } else {
         try {
-          let [authenticatedRes, reasonRes] = await authenticate(
+          const [authenticatedRes, reasonRes] = await authenticate(
             clientKey,
             password.toString(),
           )
@@ -93,7 +93,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         }
       }
     }
-    logger.debug({ result }, 'authenticate')
+    logger.debug({ clientId, result }, 'authenticate')
     callback(null, result.authenticated)
   }
 }
