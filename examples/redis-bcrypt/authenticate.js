@@ -1,6 +1,5 @@
 const bcrypt = require('bcrypt')
 const otplib = require('otplib')
-const { authenticateConcurrencyLimit } = require('./config')
 
 module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
   const authenticate = async (username, passwordString) => {
