@@ -1,7 +1,22 @@
 const bcrypt = require('bcrypt')
 const otplib = require('otplib')
 
-module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
+module.exports = ({
+  config,
+  logger,
+  redisClient,
+  rateLimiterRedisClient,
+  multiAsync,
+  clock,
+}) => {
+  const exceedsRateLimit = async (remoteAddress) => {
+    remoteAddress = remoteAddress.split(':').pop()
+    const [count] = await multiAsync(rateLimiterRedisClient, [
+      ['incr', remoteAddress],
+      ['expire', remoteAddress, config.rateLimiter.expireSeconds],
+    ])
+    return count > config.rateLimiter.limit
+  }
   const authenticate = async (username, passwordString) => {
     logger.debug({ username }, 'authenticate')
     const [
@@ -55,7 +70,7 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
     const clientId = client.id
     const result = {
       authenticated: false,
-      reason: 'unknown',
+      reason: undefined,
     }
     if (!username) {
       result.reason = 'emptyUsername'
@@ -64,36 +79,46 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
     } else if (username !== clientId) {
       result.reason = 'mismatchedClientUsername'
     } else {
-      const clientKey = clientId.replace(/:/g, '')
-      const [clientKeyExistsRes] = await multiAsync(redisClient, [
-        ['exists', `client:${clientKey}:h`],
-      ])
-      if (!clientKeyExistsRes) {
-        result.reason = 'invalidClient'
-        await multiAsync(redisClient, [
-          ['hincrby', 'meter:counter:h', 'authenticate', 1],
-          ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
-        ])
+      const { remoteAddress } = client.conn
+      if (await exceedsRateLimit(remoteAddress)) {
+        result.reason = 'rateLimited'
       } else {
-        try {
-          const [authenticatedRes, reasonRes] = await authenticate(
-            clientKey,
-            password.toString(),
-          )
-          if (authenticatedRes) {
-            result.authenticated = true
-          }
-          result.reason = reasonRes
-        } finally {
+        const clientKey = clientId.replace(/:/g, '')
+        const [clientKeyExistsRes] = await multiAsync(redisClient, [
+          ['exists', `client:${clientKey}:h`],
+        ])
+        if (!clientKeyExistsRes) {
+          result.reason = 'invalidClient'
           await multiAsync(redisClient, [
-            ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
             ['hincrby', 'meter:counter:h', 'authenticate', 1],
             ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
           ])
+        } else {
+          try {
+            const [authenticatedRes, reasonRes] = await authenticate(
+              clientKey,
+              password.toString(),
+            )
+            if (authenticatedRes) {
+              result.authenticated = true
+            }
+          } finally {
+            await multiAsync(redisClient, [
+              ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
+              ['hincrby', 'meter:counter:h', 'authenticate', 1],
+              ['hincrby', 'meter:counter:authenticate:h', reasonRes, 1],
+            ])
+          }
         }
       }
     }
     logger.debug({ clientId, result }, 'authenticate')
+    if (result.reason) {
+      await multiAsync(redisClient, [
+        ['hincrby', 'meter:counter:h', 'authenticate', 1],
+        ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
+      ])
+    }
     callback(null, result.authenticated)
   }
 }

@@ -3,6 +3,19 @@ module.exports = {
   redis: {
     keyPrefix: 'lula:',
   },
+  dbs: {
+    rateLimiter: 1,
+    mqEmitter: 2,
+    persistence: 3,
+  },
+  persistenceRedis: {
+    maxSessionDelivery: 1000, // maximum offline messages deliverable on client CONNECT, default is 1000
+    packetTTL: (packet) => 72 * 24 * 3600, // seconds, offline message TTL
+  },
+  rateLimiter: {
+    limit: 2,
+    expireSeconds: 10,
+  },
   logger: {
     name: 'lula-broker',
     level: 'debug',
