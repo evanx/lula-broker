@@ -70,7 +70,7 @@ module.exports = ({
     const clientId = client.id
     const result = {
       authenticated: false,
-      reason: undefined,
+      reason: 'unknown',
     }
     if (!username) {
       result.reason = 'emptyUsername'
@@ -89,10 +89,6 @@ module.exports = ({
         ])
         if (!clientKeyExistsRes) {
           result.reason = 'invalidClient'
-          await multiAsync(redisClient, [
-            ['hincrby', 'meter:counter:h', 'authenticate', 1],
-            ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
-          ])
         } else {
           try {
             const [authenticatedRes, reasonRes] = await authenticate(
@@ -102,18 +98,24 @@ module.exports = ({
             if (authenticatedRes) {
               result.authenticated = true
             }
+            result.reason = reasonRes
+          } catch (err) {
+            result.reason = 'errored'
+            logger.error({ clientKey, err }, 'authenticate')
+            throw err // TODO: check that app exits
           } finally {
             await multiAsync(redisClient, [
               ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
               ['hincrby', 'meter:counter:h', 'authenticate', 1],
               ['hincrby', 'meter:counter:authenticate:h', reasonRes, 1],
             ])
+            result.counted = true
           }
         }
       }
     }
     logger.debug({ clientId, result }, 'authenticate')
-    if (result.reason) {
+    if (!result.counted) {
       await multiAsync(redisClient, [
         ['hincrby', 'meter:counter:h', 'authenticate', 1],
         ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
