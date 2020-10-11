@@ -9,13 +9,33 @@ module.exports = ({
   multiAsync,
   clock,
 }) => {
-  const exceedsRateLimit = async (remoteAddress) => {
+  const getRateLimitedReason = async ({ clientKey, remoteAddress }) => {
     remoteAddress = remoteAddress.split(':').pop()
-    const [count] = await multiAsync(rateLimiterRedisClient, [
-      ['incr', remoteAddress],
-      ['expire', remoteAddress, config.rateLimiter.expireSeconds],
-    ])
-    return count > config.rateLimiter.limit
+    const [addressCount, clientCount] = await multiAsync(
+      rateLimiterRedisClient,
+      [
+        ['incr', `a:${remoteAddress}`],
+        ['incr', `c:${clientKey}`],
+        [
+          'expire',
+          `a:${remoteAddress}`,
+          config.addressRateLimiter.expireSeconds,
+        ],
+        ['expire', `c:${clientKey}`, config.clientRateLimiter.expireSeconds],
+      ],
+    )
+    if (addressCount > config.addressRateLimiter.limit) {
+      return 'addressRateLimited'
+    } else if (clientCount > config.clientRateLimiter.limit) {
+      return 'clientRateLimited'
+    } else {
+      return ''
+    }
+  }
+
+  const exceedsClientRateLimit = async (clientId) => {
+    const [count] = await multiAsync(rateLimiterRedisClient, [])
+    return count > config.clientRateLimiter.limit
   }
 
   const authenticate = async (clientKey, passwordString) => {
@@ -105,9 +125,10 @@ module.exports = ({
 
   return async (client, username, password, callback) => {
     const clientId = client.id
+    const clientKey = clientId.replace(/:/g, '')
     const result = {
+      clientKey,
       timestamp: clock(),
-      clientKey: clientId.replace(/:/g, ''),
       authenticated: false,
       reason: 'unknown',
       calledAuthenticate: false,
@@ -121,11 +142,15 @@ module.exports = ({
       result.reason = 'mismatchedClientUsername'
     } else {
       const { remoteAddress } = client.conn
-      if (await exceedsRateLimit(remoteAddress)) {
-        result.reason = 'rateLimited'
+      const rateLimitedReason = await getRateLimitedReason({
+        clientKey,
+        remoteAddress,
+      })
+      if (rateLimitedReason) {
+        result.reason = rateLimitedReason
       } else {
         const [clientKeyExistsRes] = await multiAsync(redisClient, [
-          ['exists', `client:${result.clientKey}:h`],
+          ['exists', `client:${clientKey}:h`],
         ])
         if (!clientKeyExistsRes) {
           result.reason = 'invalidClient'
@@ -133,7 +158,7 @@ module.exports = ({
           try {
             result.calledAuthenticate = true
             const [authenticatedRes, reasonRes] = await authenticate(
-              result.clientKey,
+              clientKey,
               password.toString(),
             )
             if (authenticatedRes) {
