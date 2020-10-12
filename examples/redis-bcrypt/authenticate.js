@@ -33,11 +33,6 @@ module.exports = ({
     }
   }
 
-  const exceedsClientRateLimit = async (clientId) => {
-    const [count] = await multiAsync(rateLimiterRedisClient, [])
-    return count > config.clientRateLimiter.limit
-  }
-
   const authenticate = async (clientKey, passwordString) => {
     logger.debug({ clientKey }, 'authenticate')
     const [
