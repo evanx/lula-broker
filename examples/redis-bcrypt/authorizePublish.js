@@ -12,12 +12,8 @@ module.exports = ({ logger, aedes }) => (client, pub, callback) => {
       clientId => clientId.split('/')[0] === fanout
     )
     if (clientIds.length) {
-      const count = seq.get(fanout)
-      if (!count) {
-        seq.set(fanout, 1)
-      } else {
-        seq.set(fanout, count + 1)
-      }
+      const count = seq.get(fanout) || 0
+      seq.set(fanout, count + 1)
       pub.forwardClientId = clientIds[count % clientIds.length]
     }
   }
