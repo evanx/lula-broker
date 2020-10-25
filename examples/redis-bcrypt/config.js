@@ -13,14 +13,14 @@ module.exports = {
     packetTTL: (packet) => 72 * 24 * 3600, // seconds, offline message TTL
   },
   addressRateLimiter: {
-    limit: 2, // TODO
+    limit: 92, // TODO
     expireSeconds: 10,
   },
   clientRateLimiter: {
-    limit: 1, // TODO
+    limit: 91, // TODO
     expireSeconds: 10,
   },
-  authenticateConcurrencyLimit: 1, // TODO
+  authenticateConcurrencyLimit: 4, // TODO
   logger: {
     name: 'lula-broker',
     level: 'debug',
