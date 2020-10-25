@@ -58,7 +58,7 @@ module.exports = ({
     }
     if (bcryptHash) {
       if (await bcrypt.compare(passwordString, bcryptHash)) {
-        return [true, 'bcryptOk']
+        return [true, 'bcryptedOk']
       }
     }
     if (registrationDeadline) {

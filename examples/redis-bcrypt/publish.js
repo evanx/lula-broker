@@ -6,7 +6,7 @@ module.exports = ({ config, logger, clock, redisClient }) => async (
 ) => {
   const { topic, payloadString, payloadObject } = pub
   if (!client) {
-    logger.debug({ topic }, 'no client')
+    logger.trace({ topic }, 'no client')
     return
   }
   assert(payloadObject, 'payloadObject')
@@ -17,26 +17,26 @@ module.exports = ({ config, logger, clock, redisClient }) => async (
   logger.debug({ clientId, topic, payloadString }, 'publish')
   await redisClient
     .multi([
-      ['publish', `${config.redis.keyPrefix}published:p`, payloadString],
+      ['publish', `${config.redis.keyPrefix}publish:p`, payloadString],
       [
         'publish',
-        `${config.redis.keyPrefix}published:topic:${topic.replace(/:/g, '')}:p`,
+        `${config.redis.keyPrefix}publish:topic:${topic.replace(/:/g, '')}:p`,
         payloadString,
       ],
       [
         'publish',
-        `${config.redis.keyPrefix}published:source:${clientKey}:p`,
+        `${config.redis.keyPrefix}publish:source:${clientKey}:p`,
         payloadString,
       ],
-      ['zadd', 'published:timestamp:z', now, [clientKey, type].join(':')],
-      ['zadd', `published:client:timestamp:z`, now, clientKey],
-      ['zadd', `published:type:${type}:timestamp:z`, now, clientKey],
-      ['zincrby', 'published:counter:z', 1, [clientKey, type].join(':')],
-      ['zincrby', 'published:type:counter:z', 1, type],
-      ['zincrby', 'published:source:counter:z', 1, clientKey],
+      ['zadd', 'publish:timestamp:z', now, [clientKey, type].join(':')],
+      ['zadd', `publish:client:timestamp:z`, now, clientKey],
+      ['zadd', `publish:type:${type}:timestamp:z`, now, clientKey],
+      ['zincrby', 'publish:counter:z', 1, [clientKey, type].join(':')],
+      ['zincrby', 'publish:type:counter:z', 1, type],
+      ['zincrby', 'publish:source:counter:z', 1, clientKey],
       [
         'xadd',
-        `published:x`,
+        `publish:x`,
         'maxlen',
         config.maxlen,
         '*',
