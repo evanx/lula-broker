@@ -1,0 +1,1 @@
+redis-cli keys 'lula:*' | xargs -n1 redis-cli del

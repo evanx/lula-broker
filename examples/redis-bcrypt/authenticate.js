@@ -1,17 +1,48 @@
 const bcrypt = require('bcrypt')
 const otplib = require('otplib')
 
-module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
-  const authenticate = async (username, passwordString) => {
-    logger.debug({ username }, 'authenticate')
+module.exports = ({
+  config,
+  logger,
+  redisClient,
+  rateLimiterRedisClient,
+  multiAsync,
+  clock,
+}) => {
+  const getRateLimitedReason = async ({ clientKey, remoteAddress }) => {
+    remoteAddress = remoteAddress.split(':').pop()
+    const [addressCount, clientCount] = await multiAsync(
+      rateLimiterRedisClient,
+      [
+        ['incr', `a:${remoteAddress}`],
+        ['incr', `c:${clientKey}`],
+        [
+          'expire',
+          `a:${remoteAddress}`,
+          config.addressRateLimiter.expireSeconds,
+        ],
+        ['expire', `c:${clientKey}`, config.clientRateLimiter.expireSeconds],
+      ],
+    )
+    if (addressCount > config.addressRateLimiter.limit) {
+      return 'addressRateLimited'
+    } else if (clientCount > config.clientRateLimiter.limit) {
+      return 'clientRateLimited'
+    } else {
+      return ''
+    }
+  }
+
+  const authenticate = async (clientKey, passwordString) => {
+    logger.debug({ clientKey }, 'authenticate')
     const [
       authenticateCount,
       [bcryptHash, otpSecret, registrationDeadline],
     ] = await multiAsync(redisClient, [
-      ['hincrby', 'meter:upDownCounter:h', 'authenticate', 1],
+      ['zincrby', 'meter:upDownCounter:z', 1, 'authenticate'],
       [
         'hmget',
-        `client:${username}:h`,
+        `client:${clientKey}:h`,
         'bcryptHash',
         'otpSecret',
         'registrationDeadline',
@@ -40,22 +71,63 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
         )
         await redisClient
           .multi([
-            ['hset', `client:${username}:h`, 'bcryptHash', passwordHash],
-            ['hdel', `client:${username}:h`, 'registrationDeadline'],
+            ['hset', `client:${clientKey}:h`, 'bcryptHash', passwordHash],
+            ['hdel', `client:${clientKey}:h`, 'registrationDeadline'],
           ])
           .exec()
-        logger.info({ username }, 'Registered')
+        logger.info({ clientKey }, 'Registered')
         return [true, 'registeredOk']
       }
     }
     return [false, 'invalidPassword']
   }
 
+  const recordResult = (result) => {
+    if (result.recordedResult) {
+      throw new Error('Authenticate result already recorded')
+    }
+    result.recordedResult = true
+    const commands = [
+      ['zincrby', 'meter:counter:z', 1, 'authenticate'],
+      ['zincrby', 'meter:authenticate:counter:z', 1, result.reason],
+    ]
+    if (result.clientKey) {
+      commands.push([
+        'zincrby',
+        `meter:authenticate:reason:${result.reason}:counter:z`,
+        1,
+        result.clientKey,
+      ])
+      const resultType = result.authenticated ? 'allowed' : 'denied'
+      commands.push([
+        'zadd',
+        `authenticate:result:${resultType}:timestamp:z`,
+        result.timestamp,
+        [result.clientKey, result.reason].join(':'),
+      ])
+      commands.push([
+        'zadd',
+        `authenticate:reason:${result.reason}:timestamp:z`,
+        result.timestamp,
+        result.clientKey,
+      ])
+    }
+    if (result.calledAuthenticate) {
+      commands.push(['zincrby', 'meter:upDownCounter:z', -1, 'authenticate'])
+    }
+    return multiAsync(redisClient, commands)
+  }
+
   return async (client, username, password, callback) => {
     const clientId = client.id
+    const clientKey = clientId.replace(/:/g, '')
     const result = {
+      clientKey,
+      timestamp: clock(),
       authenticated: false,
       reason: 'unknown',
+      calledAuthenticate: false,
+      recordedResult: false,
     }
     if (!username) {
       result.reason = 'emptyUsername'
@@ -64,36 +136,45 @@ module.exports = ({ config, logger, redisClient, multiAsync, clock }) => {
     } else if (username !== clientId) {
       result.reason = 'mismatchedClientUsername'
     } else {
-      const clientKey = clientId.replace(/:/g, '')
-      const [clientKeyExistsRes] = await multiAsync(redisClient, [
-        ['exists', `client:${clientKey}:h`],
-      ])
-      if (!clientKeyExistsRes) {
-        result.reason = 'invalidClient'
-        await multiAsync(redisClient, [
-          ['hincrby', 'meter:counter:h', 'authenticate', 1],
-          ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
-        ])
+      const { remoteAddress } = client.conn
+      const rateLimitedReason = await getRateLimitedReason({
+        clientKey,
+        remoteAddress,
+      })
+      if (rateLimitedReason) {
+        result.reason = rateLimitedReason
       } else {
-        try {
-          const [authenticatedRes, reasonRes] = await authenticate(
-            clientKey,
-            password.toString(),
-          )
-          if (authenticatedRes) {
-            result.authenticated = true
+        const [clientKeyExistsRes] = await multiAsync(redisClient, [
+          ['exists', `client:${clientKey}:h`],
+        ])
+        if (!clientKeyExistsRes) {
+          result.reason = 'invalidClient'
+        } else {
+          try {
+            result.calledAuthenticate = true
+            const [authenticatedRes, reasonRes] = await authenticate(
+              clientKey,
+              password.toString(),
+            )
+            if (authenticatedRes) {
+              result.authenticated = true
+            }
+            result.reason = reasonRes
+          } catch (err) {
+            result.reason = 'errored'
+            result.err = err
+            logger.error({ clientId, err }, 'authenticate')
+            throw err // TODO: check that app exits
+          } finally {
+            await recordResult(result)
           }
-          result.reason = reasonRes
-        } finally {
-          await multiAsync(redisClient, [
-            ['hincrby', 'meter:upDownCounter:h', 'authenticate', -1],
-            ['hincrby', 'meter:counter:h', 'authenticate', 1],
-            ['hincrby', 'meter:counter:authenticate:h', result.reason, 1],
-          ])
         }
       }
     }
     logger.debug({ clientId, result }, 'authenticate')
+    if (!result.recordedResult) {
+      await recordResult(result)
+    }
     callback(null, result.authenticated)
   }
 }
